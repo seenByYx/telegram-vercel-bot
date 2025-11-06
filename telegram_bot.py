@@ -1,13 +1,16 @@
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackContext
 from telegram.ext import filters
+from flask import Flask
 import json
 import os
 import asyncio
 import telegram
+import threading
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID"))
+
 # === STORAGE ===
 message_links = {}   # admin_message_id → {"user_id": ..., "user_msg_id": ...}
 user_ids = set()
@@ -76,7 +79,6 @@ async def handle_user_message(update: Update, context: CallbackContext):
     user_id = msg.chat.id
     user_ids.add(user_id)
     save_users()
-
 
     forwarded = await context.bot.forward_message(
         chat_id=ADMIN_CHAT_ID,
@@ -188,12 +190,26 @@ async def donate(update: Update, context: CallbackContext):
         disable_web_page_preview=True
     )
 
+# --- KEEP-ALIVE WEB SERVER (Flask) ---
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return "Bot is alive!"
+
+def run_web():
+    flask_app.run(host='0.0.0.0', port=8080)
+
 # --- MAIN ---
 def main():
     load_users()
     load_links()
     load_active_user()
 
+    # start keep-alive web server in background thread
+    threading.Thread(target=run_web, daemon=True).start()
+
+    # build and run telegram app
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("donate", donate))
